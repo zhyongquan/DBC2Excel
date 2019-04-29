@@ -1,11 +1,12 @@
 # DBC2Excel
 Convert DBC to Excel by VBA
 
-![IMAGE](https://s2.ax1x.com/2019/04/28/EQnpSU.png)
+![IMAGE](https://s2.ax1x.com/2019/04/29/E1l4fA.png)
 
 ## Feature
 
 * Add auto filter and merge cells
+* Auto group by message
 * Highlight transmitter and receiver
 * Sort by message name and startbit
 * Support both windows and unix file
