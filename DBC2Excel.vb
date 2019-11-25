@@ -5,7 +5,7 @@
 'Email: zhyongquan@gmail.com
 'GitHub: https://github.com/zhyongquan/DBC2Excel
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-Private Declare Sub RtlMoveMemory Lib "kernel32" (Destination As Any, source As Any, ByVal Length As Long)
+'Private Declare Sub RtlMoveMemory Lib "kernel32" (Destination As Any, source As Any, ByVal Length As Long)
 
 Option Explicit
 
@@ -584,11 +584,20 @@ Dim vt As String
 arr1 = Split(str, " ")
 arr2 = Split(str, """")
 
-
 For j = UBound(arr2) / 2 To 2 Step -1
-    vt = vt + "0x" + Hex(arr2(j * 2 - 2)) + "=" + Trim(arr2(j * 2 - 1)) + ";" + vbLf
+    If Len(arr2(j * 2 - 2)) > 5 Then
+        vt = vt + arr2(j * 2 - 2) + "=" + Trim(arr2(j * 2 - 1)) + ";" + vbLf
+    Else
+        vt = vt + "0x" + ConvertDecHex(CLng(arr2(j * 2 - 2))) + "=" + Trim(arr2(j * 2 - 1)) + ";" + vbLf
+    End If
 Next j
-vt = vt + "0x" + Hex(arr1(3)) + "=" + arr2(1) + ";"
+If Len(arr1(3)) > 5 Then
+    vt = vt + arr1(3) + "=" + arr2(1) + ";"
+Else
+    vt = vt + "0x" + ConvertDecHex(CLng(arr1(3))) + "=" + arr2(1) + ";"
+End If
+
+
 i = dicSignal.Item(arr1(1) + "-" + arr1(2))
 ActiveSheet.Cells(i, 16) = vt
 
@@ -643,20 +652,46 @@ Sub dbc2excel(control As IRibbonControl)
 dbc_Click
 End Sub
 
-Private Function ReadUniFile(ByVal sFile As String) As String
-  Dim A As Long
-  A = FileLen(sFile)
-  ReDim Buff(A - 1) As Byte
-  ReDim Buff1(A - 3) As Byte
-  Open sFile For Binary As #1
-    Get #1, , Buff
-  Close #1
-  RtlMoveMemory Buff1(0), Buff(2), A - 2
-  Dim S As String
-  S = StrConv(Buff1, vbNarrow)
-  ReadUniFile = S
+'Private Function ReadUniFile(ByVal sFile As String) As String
+'  Dim A As Long
+'  A = FileLen(sFile)
+'  ReDim Buff(A - 1) As Byte
+'  ReDim Buff1(A - 3) As Byte
+'  Open sFile For Binary As #1
+'    Get #1, , Buff
+'  Close #1
+'  RtlMoveMemory Buff1(0), Buff(2), A - 2
+'  Dim S As String
+'  S = StrConv(Buff1, vbNarrow)
+'  ReadUniFile = S
+'End Function
+
+
+Private Function ConvertDecHex(Num_Dec As Long) As String
+
+    Dim sTemp As String
+   
+    If Num_Dec >= 16 Then
+        'if greater than 16 then
+        'call recursively this function
+        sTemp = ConvertDecHex(Num_Dec \ 16) _
+            & ConvertDecHex(Num_Dec Mod 16)
+           
+    ElseIf Num_Dec > 9 Then
+        'if within 10 to 15 then assign A...F
+        Select Case Num_Dec
+            Case 10: sTemp = "A"
+            Case 11: sTemp = "B"
+            Case 12: sTemp = "C"
+            Case 13: sTemp = "D"
+            Case 14: sTemp = "E"
+            Case 15: sTemp = "F"
+        End Select
+    Else
+        'If within 0 to 9 then no change
+        sTemp = Num_Dec
+    End If
+           
+    ConvertDecHex = sTemp
+       
 End Function
-
-
-
-
