@@ -13,33 +13,43 @@
  '    1. add vClmMsg, vClmSig to loc the colomns easier. in the mean time, change the colomn num to Enum;
  '    2. add colomn: TxMothed, MultiGrp. And, change the cells()
  '    3. add bus tpye to convert excel to dbc.
+ '    4. dec-->hex, 修改条件判断'
+ '    5. 分离dbc读取代码块，改为函数，以备dbc合并
+ '    6. 添加一列eConflict，表示dbc信号冲突, 可以手动删除冲突信号，然后再转换为dbc
+ '    7. 添加CheckMsgConflict()，CheckSignalName()以查重
+ '    8. 修改文件打开代码，以同时打开多个dbc文件
+ '    9. add smDict
+ '    10. 
 '''''''''''''''''''''''''''''''''''''''''''''
 'Private Declare Sub RtlMoveMemory Lib "kernel32" (Destination As Any, source As Any, ByVal Length As Long)
 
 Option Explicit
 
-'clms of Msg and Sig 
-Dim vClmMsg, vClmSig As Integer
-Public Enum eCLM 
-    eMessage =1
-    eID =2
-    eDLC =3
-    eTxMethod =4
-    eCycleTime =5
-    eSignal =6
-    eMultipGrp =7
-    eStartbit =8
-    eLength =9
-    eByteOrder =10
-    eValueType =11
-    eInitialValue =12
-    eFactor =13
-    eOffset =14
-    eMinimum =15
-    eMaximum =16
-    eUnit =17
-    eValueTable =18
-    eComment =19 
+'clms of Msg and Sig
+Const vClmMsg As Integer = 6
+Const vClmSig As Integer = 21
+Public Enum eCLM
+    eMessage = 1
+    eID
+    eDLC
+    eTxMethod
+    eCycleTime
+    eMsgComment
+    eSignal
+    eMultipGrp
+    eStartbit
+    eLength
+    eByteOrder
+    eValueType
+    eInitialValue
+    eFactor
+    eOffset
+    eMinimum
+    eMaximum
+    eUnit
+    eValueTable
+    eComment
+    eConflict
 End Enum
 
 Dim vErrLog As String
@@ -47,17 +57,19 @@ Dim vErrLog As String
 Private Type Message
     Index As Integer
     Name As String
-    ID As Double
+    id As Double
     DLC As Integer
     TxMethod As String
     Transmitter As String
     CycleTime As Integer
     SignalCount As Integer
+    Layoutuse(63) As Integer  'bitSt,0Unuse, 1 use
+    Conflict As Integer
 End Type
 
 Private Type Signal
     Index As Integer
-    ID As Double
+    id As Double
     Name As String
     Multiplexing_Group As String
     Startbit As Integer
@@ -75,20 +87,33 @@ Private Type Signal
     Receiver() As String
     Encoding As String
     Range As String
+    Conflict As Integer
 End Type
 
-Private Type SignalComment
-    ID As Double
+Private Type MsgComment
+    id As Double
     Name As String
     Comment As String
     OKStart As Boolean
     OKEnd As Boolean
 End Type
 
-Dim dicMessage, dicSignal, dicNode, dicAttr As Scripting.Dictionary
+Private Type SignalComment
+    id As Double
+    Name As String
+    Comment As String
+    OKStart As Boolean
+    OKEnd As Boolean
+End Type
 
-Dim countMessage, countSignal As Integer
-Dim attrMsgSendType As String
+Dim dicMessage, dicSignal, dicNode, dicAttr, dicSigCmt As Scripting.Dictionary
+Dim start_row, emptyMessage As Integer
+
+Dim countMessage, countSignal, countConflictSig As Integer
+Dim attrMsgSendType() As String
+Dim m As Message
+Dim S As Signal
+Dim sm As SignalComment
 
 
 Private Sub dbc_clear()
@@ -96,7 +121,7 @@ Private Sub dbc_clear()
 Dim i, j As Integer
 
 i = 3
-While Len(ActiveSheet.Cells(i, vClmMsg+1)) > 0
+While Len(ActiveSheet.Cells(i, vClmMsg + 1)) > 0
     i = i + 1
 Wend
 
@@ -105,8 +130,6 @@ While Len(ActiveSheet.Cells(2, j)) > 0
     j = j + 1
 Wend
 
-
-
 ActiveWindow.FreezePanes = False
 ActiveSheet.Cells(1, 2) = ""
 Rows("2:" + CStr(i)).Select
@@ -114,34 +137,36 @@ Selection.ClearOutline
 Selection.Delete Shift:=xlUp
 Columns("R:" + Col_Letter(j)).Select
 Selection.Delete Shift:=xlToLeft
-    
+'cellsdelete'
+Cells.Select
+Range("B1").Activate
+Cells.Delete Shift:=xlShiftUp
+
 End Sub
+
 Private Sub dbc_Click()
 
 Application.DisplayAlerts = False
 'On Error Resume Next
-
-Dim str, rline, text As String
-Dim i, j, Index, start_row, ii As Integer
-Dim Filename, k, v
+Dim MBox As Integer
+Dim str, text As String
+Dim i, j, Index As Integer
+Dim Filename, File, k, v
 Dim arr
-Dim lines() As String
 Dim fso As New FileSystemObject
 Dim head As String
 Dim temp, temp_high, temp_low
-Dim isUnix As Boolean
+Dim rowHt As Double
 Dim starttime, endtime As Date
 Dim elapsed As Double
 Dim baudrate, totalbit As Double
-Dim emptyMessage As Integer
-baudrate = 500000
-vClmMsg = 5
-vClmSig = 19
-Filename = Application.GetOpenFilename("DBC File,*.dbc")
 
-If Filename = False Then
-    Exit Sub
-End If
+baudrate = 500000
+' vClmMsg = 6
+' vClmSig = 21
+MBox = MsgBox("提示：如果要合并多帧报文，请先加选多帧dbc文件", vbYesNoCancel + vbQuestion)
+
+
 
 starttime = Now
 endtime = starttime
@@ -152,8 +177,7 @@ Call dbc_clear
 text = GetElapsedTime(endtime, "Clear")
 endtime = Now
 
-
-head = "Message,ID,DLC [Byte],TxMethod,Cycle Time [Ms],Signal,Multip/Grp,Startbit,Length [Bit],Byte Order,Value Type,Initial Value,Factor,Offset,Minimum,Maximum,Unit,Value Table,Comment"
+head = "Message,ID,DLC [Byte],TxMethod,Cycle Time [Ms],MsgComment,Signal,Multip/Grp,Startbit,Length [Bit],Byte Order,Value Type,Initial Value,Factor,Offset,Minimum,Maximum,Unit,Value Table,Comment,Conflict"
 arr = Split(head, ",")
 For i = 0 To UBound(arr)
     ActiveSheet.Cells(2, i + 1) = arr(i)
@@ -166,29 +190,10 @@ Set dicAttr = New Scripting.Dictionary
 
 countSignal = 0
 countMessage = 0
+countConflictSig = 0
 
-Open Filename For Input As #1
-Dim m As Message
-Dim S As Signal
-Dim sm As SignalComment
+
 start_row = 3
-
-Line Input #1, rline
-If EOF(1) Then
-    isUnix = True
-    rline = Replace(rline, vbLf, vbLf)
-    lines = Split(rline, vbLf)
-Else
-    isUnix = False
-    str = rline
-    While Not EOF(1)
-        Line Input #1, rline
-        Index = Index + 1
-        str = str + vbLf + rline
-    Wend
-    lines = Split(str, vbLf)
-End If
-Close #1
 
 'change from hailing.hu
 Columns("A:A").Select
@@ -197,111 +202,22 @@ Selection.NumberFormatLocal = "@"
 text = text + vbLf + GetElapsedTime(endtime, "Read file")
 endtime = Now
 
-For ii = 0 To UBound(lines)
-    rline = lines(ii)
-    rline = Trim(rline)
-'    If isUnix And Len(rline) > 1 Then
-'        rline = Mid(rline, 1, Len(rline) - 1)
-'    End If
-    ' Get the Node, and add to list after vClmSig
-    If InStr(1, rline, "BU_: ") = 1 Then
-        arr = Split(rline, " ")
-        For i = 1 To UBound(arr)
-            ActiveSheet.Cells(2, vClmSig + i) = arr(i)
-            dicNode.Add arr(i), i
-        Next
-    ElseIf InStr(1, rline, "BO_ ") = 1 Then
-        'move to next row for empty frame
-        If m.ID > 0 And m.SignalCount = 0 Then
-            emptyMessage = emptyMessage + 1
-            start_row = start_row + 1
-        End If
-        m = GetMessage(start_row, rline)
-        ActiveSheet.Cells(start_row, eMessage) = m.Name
-        ActiveSheet.Cells(start_row, eID) = m.ID
-        ActiveSheet.Cells(start_row, eDLC) = m.DLC
-        CheckNode (m.Transmitter)
-    ElseIf InStr(1, rline, "SG_ ") = 1 Then
-        m.SignalCount = m.SignalCount + 1
-        S = GetSignal(start_row, CStr(m.ID), rline)
-        ActiveSheet.Cells(start_row, 1) = m.Name
-        'ActiveSheet.Cells(start_row, 2) = m.ID
-        ActiveSheet.Cells(start_row, vClmMsg+1) = S.Name
-        ActiveSheet.Cells(start_row, vClmMsg+2) = S.Multiplexing_Group
-        ActiveSheet.Cells(start_row, vClmMsg+3) = S.Startbit
-        ActiveSheet.Cells(start_row, vClmMsg+4) = S.Length
-        ActiveSheet.Cells(start_row, vClmMsg+5) = S.ByteOrder
-        ActiveSheet.Cells(start_row, vClmMsg+6) = S.ValueType
-        ActiveSheet.Cells(start_row, vClmMsg+7) = S.InitialValue
-        ActiveSheet.Cells(start_row, vClmMsg+8) = S.Factor
-        ActiveSheet.Cells(start_row, vClmMsg+9) = S.Offset
-        ActiveSheet.Cells(start_row, vClmMsg+10) = S.Minimum
-        ActiveSheet.Cells(start_row, vClmMsg+11) = S.Maximum
-        ActiveSheet.Cells(start_row, vClmMsg+12) = S.Unit
-        'activesheet.Cells(start_row, vClmMsg+13) = s.Encoding
-        
-        j = dicNode.Item(m.Transmitter)
-        ActiveSheet.Cells(start_row, vClmSig + j) = "T"
-        Range(Col_Letter(vClmSig + j) + CStr(start_row)).Select
-        Selection.Font.Bold = True
-        With Selection.Interior
-            .Pattern = xlSolid
-            .PatternColorIndex = xlAutomatic
-            .Color = 65535
-            .TintAndShade = 0
-            .PatternTintAndShade = 0
-        End With
-        For i = 0 To UBound(S.Receiver)
-            CheckNode (S.Receiver(i))
-            j = dicNode.Item(S.Receiver(i))
-            ActiveSheet.Cells(start_row, vClmSig + j) = "R"
-            Range(Col_Letter(vClmSig + j) + CStr(start_row)).Select
-            Selection.Font.Bold = True
-            With Selection.Interior
-                .Pattern = xlSolid
-                .PatternColorIndex = xlAutomatic
-                .Color = 65280
-                .TintAndShade = 0
-                .PatternTintAndShade = 0
-            End With
-        Next i
-        start_row = start_row + 1
-    ElseIf InStr(1, rline, "CM_ SG_ ") = 1 Then
-        sm = GetComment(rline)
-    ElseIf InStr(1, rline, "BA_DEF_ BO_  ") = 1 Then
-        If InStr(1, rline, "GenMsgSendType") > 0 Then
-            SetMsgSendTypeAttr(rline)
-        End If
-'    ElseIf InStr(1, rline, "BA_DEF_ SG_  ") = 1 Then
-'    ElseIf InStr(1, rline, "BA_DEF_   ") = 1 Then
-'    ElseIf InStr(1, rline, "BA_DEF_DEF_  ") = 1 Then
-'        SetDBCAttr rline
-    ElseIf InStr(1, rline, "BA_ ") = 1 Then
-        If InStr(1, rline, "GenSigStartValue") > 0 And InStr(1, rline, "SG_") > 0 Then
-            SetInitialValue (rline)
-        ElseIf InStr(1, rline, "GenMsgCycleTime") > 0 And InStr(1, rline, "BO_") > 0 Then
-            SetCycleTime (rline)
-        ElseIf InStr(1, rline, "GenMsgSendType") > 0 And InStr(1, rline, "BO_") > 0 Then
-            SetSendType (rline)   
-        End If
-    ElseIf InStr(1, rline, "VAL_ ") = 1 Then
-        SetValueTable (rline)
-    ElseIf sm.ID > 0 And sm.OKStart And Not sm.OKEnd Then
-        arr = Split(rline, """")
-        If UBound(arr) = 1 Then
-            sm.Comment = sm.Comment + vbLf + arr(0)
-            sm.OKEnd = True
-        Else
-            sm.Comment = vbLf + rline
-        End If
-    End If
-    If sm.ID > 0 And sm.OKStart And sm.OKEnd Then
-        i = dicSignal.Item(CStr(sm.ID) + "-" + sm.Name)
-        ActiveSheet.Cells(i, eComment) = sm.Comment
-        sm.ID = 0
-    End If
-    
-Next ii
+'todo: read dbc'
+
+Filename = Application.GetOpenFilename("DBC File,*.dbc", 0, "选择需转换、合并（可多选）的文件", Null, True)
+
+If IsArray(Filename) = True Then
+    Application.ScreenUpdating = False
+    For Each File In Filename
+        Call dbc_file_read(File)
+    Next
+    Application.ScreenUpdating = True
+Else
+    Exit Sub
+End If
+
+' Call dbc_file_read(Filename)
+' Call dbc_file_read(File2ndname)
 
 text = text + vbLf + GetElapsedTime(endtime, "Fill table")
 endtime = Now
@@ -312,19 +228,20 @@ v = dicMessage.Items
 For i = 0 To dicMessage.Count - 1
     temp = ActiveSheet.Cells(v(i), eID)
     If temp > 65535 Then
-        temp_high = Fix(temp / 65536)
+        temp_high = Fix(temp / 65536)   '0x10000'
         temp_low = temp - temp_high * 65536
-        If temp_high > 32768 Then
+        If temp_high > 32767 Then   '0x8000
             ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & Hex(temp_high - 32768), 4) & Right(String(4, "0") & Hex(temp_low), 4)
         Else
-            ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp_low)
+            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & Hex(temp_high), 4) & Right(String(4, "0") & Hex(temp_low), 4)
         End If
     Else
         ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
     End If
+    ' ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
 Next i
 
-text = text + vbLf + GetElapsedTime(endtime, "Format message id")
+text = text + vbLf + GetElapsedTime(endtime, "Format message id(dec-->hex)")
 endtime = Now
 
 sort countSignal + 2, dicNode.Count + vClmSig
@@ -337,11 +254,14 @@ For i = 4 To countSignal + 3 + emptyMessage
     If ActiveSheet.Cells(i, 1) <> ActiveSheet.Cells(i - 1, 1) Then
         If i - start_row > 1 Then
             group start_row, i - 1
-            combine "A", start_row, i - 1
-            combine "B", start_row, i - 1
-            combine "C", start_row, i - 1
-            combine "D", start_row, i - 1
-            combine "E", start_row, i - 1
+            For j = 1 To vClmMsg
+                combine Col_Letter(j), start_row, i - 1
+            Next
+            ' combine "A", start_row, i - 1
+            ' combine "B", start_row, i - 1
+            ' combine "C", start_row, i - 1
+            ' combine "D", start_row, i - 1
+            ' combine "E", start_row, i - 1
         End If
         start_row = i
     End If
@@ -420,9 +340,22 @@ End With
 
 text = text + vbLf + GetElapsedTime(endtime, "Format grid")
 endtime = Now
-
-Columns("R:" + Col_Letter(vClmSig + dicNode.Count)).Select
-Columns("R:" + Col_Letter(vClmSig + dicNode.Count)).EntireColumn.AutoFit
+'Auto fit: value_table,Sigcomments, ECUs
+Columns(Col_Letter(eMessage) + ":" + Col_Letter(eConflict)).Select
+Selection.EntireColumn.AutoFit
+Columns(Col_Letter(eComment) + ":" + Col_Letter(eComment)).Select
+Range(Col_Letter(eComment) + "1").Activate
+With Selection
+    .ColumnWidth = 25
+    .WrapText = True
+End With
+Columns(Col_Letter(eMsgComment) + ":" + Col_Letter(eMsgComment)).Select
+With Selection
+    .ColumnWidth = 25
+    .WrapText = True
+End With
+Columns(Col_Letter(vClmSig + 1) + ":" + Col_Letter(vClmSig + dicNode.Count)).Select
+Selection.EntireColumn.AutoFit
 
 Range("B3").Select
 ActiveWindow.FreezePanes = True
@@ -430,15 +363,30 @@ ActiveWindow.FreezePanes = True
 text = text + vbLf + GetElapsedTime(endtime, "Format fillter and frezze")
 endtime = Now
 
-str = "DBC File= " + fso.GetFileName(Filename) + vbLf
+str = ""
+rowHt = 48
+For Each File In Filename
+        str = str + "DBC File= " + fso.GetFileName(File) + vbLf
+        rowHt = rowHt + 12
+    Next
 str = str + "ECU Nodes Count= " + CStr(dicNode.Count) + vbLf
 str = str + "Messages Count= " + CStr(dicMessage.Count) + vbLf
-str = str + "Signals Count= " + CStr(dicSignal.Count)
+str = str + "Signals Count= " + CStr(dicSignal.Count) + vbLf
+str = str + "Conflict'Sigs Count= " + CStr(countConflictSig) + vbLf
 'str = str + vbLf + "Bus Load= " + Format(totalbit * 100 / baudrate, "0.00") + "%"
-ActiveSheet.Cells(1, eMessage+1) = str
-
+ActiveSheet.Cells(1, vClmMsg + 1) = str
+    ActiveSheet.Range(Col_Letter(vClmMsg + 1) & "1:" & Col_Letter(vClmSig) & "1").Select
+    With Selection
+        .Merge Across:=False
+        .WrapText = True
+        .AutoFit
+        .VerticalAlignment = xlVAlignCenter
+        .HorizontalAlignment = xlHAlignLeft
+        .RowHeight = rowHt
+    End With
+    
 ActiveSheet.Cells(1, 2) = "Standard"
-    ActiveCell.Range("B1:" & Col_Letter(vClmMsg) & "1").Select
+    ActiveSheet.Range("B1:" & Col_Letter(vClmMsg) & "1").Select
     With Selection
         .Merge Across:=False
         .HorizontalAlignment = xlHAlignCenter
@@ -469,16 +417,20 @@ dicAttr.Add attr_name, attr_value
 
 End Sub
 
-Private Sub SetMsgSendTypeAttr(ByVal str As String)
-' Dim arr
-' Dim attr_name, attr_value
+Private Sub GetMsgSendTypeAttr(ByVal str As String)
+ Dim vtemp
+ Dim attr As String
 
 'arr = Split(Mid(str, 1, Len(str) - 1), " ")
 'attr_name = Mid(arr(2), 3, Len(arr(2)) - 2)
 'attr_value = arr(3)
 'dicAttr.Add attr_name, attr_value
 'TODO: '
-attrMsgSendType = Split(Mid(str, InStr(1, str, "ENUM")+5,Len(str)-1), "","")
+vtemp = InStr(1, str, "ENUM")
+attr = Mid(str, vtemp + 6, Len(str) - vtemp - 6)
+attr = Replace(attr, """,""", ",")
+attr = Replace(attr, """", "")
+attrMsgSendType = Split(attr, ",")
 End Sub
 
 Private Sub sort(ByVal end_row As Integer, ByVal end_col As Integer)
@@ -527,12 +479,39 @@ text = step + ": " + Format(elapsed * 3600 * 24, "#0") + "s"
 GetElapsedTime = text
 
 End Function
+
 Private Sub CheckNode(ByVal str As String)
 If Not dicNode.Exists(str) Then
     dicNode.Add str, dicNode.Count + 1
     ActiveSheet.Cells(2, vClmSig + dicNode.Count) = str
 End If
 End Sub
+
+Private Function CheckMsgConflict(ByVal id As String, ByVal row As Integer) As Integer
+Dim ret As Integer
+ret = 1
+If Not dicMessage.Exists(id) Then
+    dicMessage.Add id, row ' dicMessage.Count + 1
+    'ActiveSheet.Cells(2, vClmSig + dicNode.Count) = id
+    ret = 0
+End If
+CheckMsgConflict = ret
+End Function
+
+'todo: compare the signals'
+Private Function CheckSignalName(ByVal Sig As String, ByVal start_row As Integer) As Integer
+Dim ret As Integer
+
+If Not dicSignal.Exists(Sig) Then
+    dicSignal.Add Sig, start_row ' dicMessage.Count + 1
+    ' dicSignal.Count = dicSignal.Count +1
+    'ActiveSheet.Cells(2, vClmSig + dicNode.Count) = id
+Else
+    ActiveSheet.Cells(start_row, eConflict) = "Comflict"
+    ActiveSheet.Cells(dicSignal.Item(Sig), eConflict) = "Comflict"
+    countConflictSig = countConflictSig + 1
+End If
+End Function
 
 Private Function SetCycleTime(ByVal str As String) As Double
 Dim arr
@@ -559,13 +538,31 @@ ActiveSheet.Cells(i, eTxMethod) = attrMsgSendType(arr(4))
 
 End Function
 
+Private Function GetMsgComment(ByVal str As String) As MsgComment
+Dim arr1, arr2
+Dim Msgm As MsgComment
+
+arr1 = Split(str, """")
+arr2 = Split(str, " ")
+Msgm.id = arr2(2)
+' Msgm.Name = arr2(3)
+Msgm.Comment = arr1(1)
+Msgm.OKStart = True
+If UBound(arr1) = 2 Then
+    Msgm.OKEnd = True
+End If
+
+GetMsgComment = Msgm
+
+End Function
+
 Private Function GetComment(ByVal str As String) As SignalComment
 Dim arr1, arr2
 Dim sm As SignalComment
 
 arr1 = Split(str, """")
 arr2 = Split(str, " ")
-sm.ID = arr2(2)
+sm.id = arr2(2)
 sm.Name = arr2(3)
 sm.Comment = arr1(1)
 sm.OKStart = True
@@ -583,14 +580,13 @@ Dim arr() As String
 
 arr = Split(str, " ")
 m.Index = start_row
-m.ID = arr(1)
+m.id = arr(1)
 m.Name = Mid(arr(2), 1, Len(arr(2)) - 1)
 m.DLC = arr(3)
 m.Transmitter = arr(4)
-
+'todo:'
 countMessage = countMessage + 1
-dicMessage.Add CStr(m.ID), m.Index
-
+m.Conflict = CheckMsgConflict(CStr(m.id), m.Index)
 GetMessage = m
 End Function
 
@@ -598,8 +594,10 @@ Private Function GetSignal(ByVal start_row As Integer, message_id As String, ByV
 Dim arr1, arr2, arr3
 Dim S As Signal
 Dim i1, i2, j As Integer
+Dim vectorXXX(0) As String
+vectorXXX(0) = "Vector__XXX"
 S.Index = start_row
-S.ID = message_id
+S.id = message_id
 'unit
 arr1 = Split(str, """")
 S.Unit = arr1(1)
@@ -645,14 +643,14 @@ If UBound(arr1) >= 2 Then
     S.Receiver = Split(Trim(arr1(2)), ",")
 Else
     vErrLog = vErrLog & "Error with : " & str & vbLf
-    S.Receiver = Split(Trim(arr1(1)), " ")
+    S.Receiver = vectorXXX
 End If
 '
 S.Range = "[" + CStr(S.Minimum) + "," + CStr(S.Maximum) + "]"
 S.Encoding = "E=" + CStr(S.Factor) + "*N+" + CStr(S.Offset)
 
-countSignal = countSignal + 1
-dicSignal.Add CStr(S.ID) + "-" + S.Name, S.Index
+ countSignal = countSignal + 1
+CheckSignalName CStr(S.id) + "-" + S.Name, S.Index
 
 GetSignal = S
 End Function
@@ -664,7 +662,7 @@ i = InStr(str, ";")
 arr = Split(Mid(str, 1, i - 1), " ")
 
 i = dicSignal.Item(arr(3) + "-" + arr(4))
-ActiveSheet.Cells(i, vClmMsg+7) = arr(5) * ActiveSheet.Cells(i, vClmMsg+8).Value + ActiveSheet.Cells(i, vClmMsg+9).Value
+ActiveSheet.Cells(i, vClmMsg + 7) = arr(5) * ActiveSheet.Cells(i, vClmMsg + 8).Value + ActiveSheet.Cells(i, vClmMsg + 9).Value
 
 End Sub
 Private Sub SetValueTable(str As String)
@@ -689,15 +687,15 @@ End If
 
 
 i = dicSignal.Item(arr1(1) + "-" + arr1(2))
-ActiveSheet.Cells(i, vClmMsg+13) = vt
+ActiveSheet.Cells(i, vClmMsg + 13) = vt
 
 End Sub
 
 Private Sub combine(col As String, ByVal start_row As Integer, end_row As Integer)
 Range(col + CStr(start_row) + ":" + col + CStr(end_row)).Select
-'With Selection
-'    .HorizontalAlignment = xlCenter
-'    .VerticalAlignment = xlBottom
+With Selection
+   ' .HorizontalAlignment = xlCenter
+   .VerticalAlignment = xlCenter    'xlBottom
 '    .WrapText = False
 '    .Orientation = 0
 '    .AddIndent = False
@@ -705,30 +703,9 @@ Range(col + CStr(start_row) + ":" + col + CStr(end_row)).Select
 '    .ShrinkToFit = False
 '    .ReadingOrder = xlContext
 '    .MergeCells = False
-'End With
+End With
 Selection.Merge
-'With Selection
-'    .HorizontalAlignment = xlCenter
-'    .VerticalAlignment = xlCenter
-'    .WrapText = False
-'    .Orientation = 0
-'    .AddIndent = False
-'    .IndentLevel = 0
-'    .ShrinkToFit = False
-'    .ReadingOrder = xlContext
-'    .MergeCells = True
-'End With
-'With Selection
-'    .HorizontalAlignment = xlLeft
-'    .VerticalAlignment = xlCenter
-'    .WrapText = False
-'    .Orientation = 0
-'    .AddIndent = False
-'    .IndentLevel = 0
-'    .ShrinkToFit = False
-'    .ReadingOrder = xlContext
-'    .MergeCells = True
-'End With
+
 End Sub
 
 Private Function Col_Letter(ByVal lngCol As Long) As String
@@ -785,5 +762,157 @@ Private Function ConvertDecHex(Num_Dec As Long) As String
     ConvertDecHex = sTemp
        
 End Function
+
+'Read dbc file content'
+Private Sub dbc_file_read(File)
+Dim str, rline, text As String
+Dim i, j, Index, ii As Integer
+Dim lines() As String
+Dim isUnix As Boolean
+Dim arr
+Dim Msgcmt As MsgComment
+
+Open File For Input As #1
+Line Input #1, rline
+If EOF(1) Then
+    isUnix = True
+    rline = Replace(rline, vbLf, vbLf)
+    lines = Split(rline, vbLf)
+Else
+    isUnix = False
+    str = rline
+    While Not EOF(1)
+        Line Input #1, rline
+        Index = Index + 1
+        str = str + vbLf + rline
+    Wend
+    lines = Split(str, vbLf)
+End If
+Close #1
+
+For ii = 0 To UBound(lines)
+    rline = lines(ii)
+    rline = Trim(rline)
+'    If isUnix And Len(rline) > 1 Then
+'        rline = Mid(rline, 1, Len(rline) - 1)
+'    End If
+' Get the Node, and add to list after vClmSig
+    If InStr(1, rline, "BU_: ") = 1 Then
+        arr = Split(rline, " ")
+        For i = 1 To UBound(arr)
+            CheckNode (arr(i))
+        Next
+    ElseIf InStr(1, rline, "BO_ ") = 1 Then
+        'move to next row for empty frame
+        If m.id > 0 And m.SignalCount = 0 Then
+            emptyMessage = emptyMessage + 1
+            start_row = start_row + 1
+        End If
+        m = GetMessage(start_row, rline)
+        If m.Conflict = 0 Then
+            ActiveSheet.Cells(start_row, eMessage) = m.Name
+            ActiveSheet.Cells(start_row, eID) = m.id
+            ActiveSheet.Cells(start_row, eDLC) = m.DLC
+            CheckNode (m.Transmitter)
+        End If
+    ElseIf InStr(1, rline, "SG_ ") = 1 Then
+        m.SignalCount = m.SignalCount + 1
+        S = GetSignal(start_row, CStr(m.id), rline)
+        ActiveSheet.Cells(start_row, 1) = m.Name
+        'ActiveSheet.Cells(start_row, 2) = m.ID
+        ActiveSheet.Cells(start_row, vClmMsg + 1) = S.Name
+        ActiveSheet.Cells(start_row, vClmMsg + 2) = S.Multiplexing_Group
+        ActiveSheet.Cells(start_row, vClmMsg + 3) = S.Startbit
+        ActiveSheet.Cells(start_row, vClmMsg + 4) = S.Length
+        ActiveSheet.Cells(start_row, vClmMsg + 5) = S.ByteOrder
+        ActiveSheet.Cells(start_row, vClmMsg + 6) = S.ValueType
+        ActiveSheet.Cells(start_row, vClmMsg + 7) = S.InitialValue
+        ActiveSheet.Cells(start_row, vClmMsg + 8) = S.Factor
+        ActiveSheet.Cells(start_row, vClmMsg + 9) = S.Offset
+        ActiveSheet.Cells(start_row, vClmMsg + 10) = S.Minimum
+        ActiveSheet.Cells(start_row, vClmMsg + 11) = S.Maximum
+        ActiveSheet.Cells(start_row, vClmMsg + 12) = S.Unit
+        'activesheet.Cells(start_row, vClmMsg+13) = s.Encoding
+
+        'Node and Color'
+        j = dicNode.Item(m.Transmitter)
+        ActiveSheet.Cells(start_row, vClmSig + j) = "T"
+        Range(Col_Letter(vClmSig + j) + CStr(start_row)).Select
+        Selection.Font.Bold = True
+        With Selection.Interior
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+            .Color = 65535
+            .TintAndShade = 0
+            .PatternTintAndShade = 0
+        End With
+        For i = 0 To UBound(S.Receiver)
+            CheckNode (S.Receiver(i))
+            j = dicNode.Item(S.Receiver(i))
+            ActiveSheet.Cells(start_row, vClmSig + j) = "R"
+            Range(Col_Letter(vClmSig + j) + CStr(start_row)).Select
+            Selection.Font.Bold = True
+            With Selection.Interior
+                .Pattern = xlSolid
+                .PatternColorIndex = xlAutomatic
+                .Color = 65280
+                .TintAndShade = 0
+                .PatternTintAndShade = 0
+            End With
+        Next i
+        start_row = start_row + 1
+    ElseIf InStr(1, rline, "CM_ BO_ ") = 1 Then
+        Msgcmt = GetMsgComment(rline)
+    ElseIf Msgcmt.id > 0 And Msgcmt.OKStart And Not Msgcmt.OKEnd Then
+        arr = Split(rline, """")
+        If UBound(arr) = 1 Then
+            Msgcmt.Comment = Msgcmt.Comment + vbLf + arr(0)
+            Msgcmt.OKEnd = True
+        Else
+            Msgcmt.Comment = Msgcmt.Comment + vbLf + rline
+        End If
+    ElseIf InStr(1, rline, "CM_ SG_ ") = 1 Then
+        sm = GetComment(rline)
+    ElseIf sm.id > 0 And sm.OKStart And Not sm.OKEnd Then
+        arr = Split(rline, """")
+        If UBound(arr) = 1 Then
+            sm.Comment = sm.Comment + vbLf + arr(0)
+            sm.OKEnd = True
+        Else
+            sm.Comment = sm.Comment + vbLf + rline
+        End If
+    ElseIf InStr(1, rline, "BA_DEF_ BO_  ") = 1 Then
+        If InStr(1, rline, "GenMsgSendType") > 0 Then
+            GetMsgSendTypeAttr (rline)
+        End If
+'    ElseIf InStr(1, rline, "BA_DEF_ SG_  ") = 1 Then
+'    ElseIf InStr(1, rline, "BA_DEF_   ") = 1 Then
+'    ElseIf InStr(1, rline, "BA_DEF_DEF_  ") = 1 Then
+'        SetDBCAttr rline
+    ElseIf InStr(1, rline, "BA_ ") = 1 Then
+        If InStr(1, rline, "GenSigStartValue") > 0 And InStr(1, rline, "SG_") > 0 Then
+            SetInitialValue (rline)
+        ElseIf InStr(1, rline, "GenMsgCycleTime") > 0 And InStr(1, rline, "BO_") > 0 Then
+            SetCycleTime (rline)
+        ElseIf InStr(1, rline, "GenMsgSendType") > 0 And InStr(1, rline, "BO_") > 0 Then
+            SetSendType (rline)
+        End If
+    ElseIf InStr(1, rline, "VAL_ ") = 1 Then
+        SetValueTable (rline)
+    End If
+    If Msgcmt.id > 0 And Msgcmt.OKStart And Msgcmt.OKEnd Then
+        i = dicMessage.Item(CStr(Msgcmt.id))
+        ActiveSheet.Cells(i, eMsgComment) = Msgcmt.Comment      '.AddComment text:
+        Msgcmt.id = 0
+    End If
+    If sm.id > 0 And sm.OKStart And sm.OKEnd Then
+        i = dicSignal.Item(CStr(sm.id) + "-" + sm.Name)
+        'dicSigCmt.add CStr(sm.id) + "-" + sm.Name, sm.Comment
+        ActiveSheet.Cells(i, eComment) = sm.Comment
+        sm.id = 0
+    End If
+    
+Next ii
+End Sub
 
 
