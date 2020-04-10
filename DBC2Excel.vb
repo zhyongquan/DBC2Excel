@@ -114,11 +114,12 @@ Private Type SignalComment
 End Type
 
 Dim dicMessage, dicSignal, dicNode, dicAttr As Scripting.Dictionary
-'   (k-id,v-indx), (id-sig,indx)
-Dim m, arrMessage As Message
-Dim S, arrSignal As Signal
+'   (k-id-fl,v-starow), (id-sig-f,strow)
+Dim m As Message 
+Dim S As Signal  
+Dim arrMessage() As Message
+Dim arrSignal() As Signal
 '   (indx,msg), (indx,sig)  
-
 Dim start_row, emptyMessage As Integer
 
 Dim countMessage, countSignal, countConflictSig As Integer
@@ -252,21 +253,18 @@ Next i
 text = text + vbLf + GetElapsedTime(endtime, "Format message id(dec-->hex)")
 endtime = Now
 
-sort countSignal + 2, dicNode.Count + vClmSig
-
-text = text + vbLf + GetElapsedTime(endtime, "Sort")
-endtime = Now
-
 start_row = 3
 For i = 4 To countSignal + 3 + emptyMessage
+    'same Message Name
     If ActiveSheet.Cells(i, 1) <> ActiveSheet.Cells(i - 1, 1) Then
         If i - start_row > 1 Then
             group start_row, i - 1
             For j = 1 To vClmMsg
                 ' combine Col_Letter(j), start_row, i - 1
             Next
-		    Range(Col_Letter(eCycleTime) + CStr(i) +":"+Col_Letter(eCycleTime)+m.SignalCount).Select
-			Selection.FillDown        End If
+		    Range("B" + CStr(start_row) +":"+Col_Letter(vClmMsg)+ CStr(i-1)).Select
+			Selection.FillDown  
+        End If
         start_row = i
     End If
 Next i
@@ -289,6 +287,11 @@ Next i
 'End If
 
 text = text + vbLf + GetElapsedTime(endtime, "Format message")
+endtime = Now
+
+sort countSignal + 2, dicNode.Count + vClmSig
+
+text = text + vbLf + GetElapsedTime(endtime, "Sort")
 endtime = Now
 
 Range("A2:" + Col_Letter(vClmSig + dicNode.Count) + "2").Select
@@ -376,7 +379,7 @@ str = ""
 rowHt = 48
 ' For Each File In Filename
 For i = 1 To UBound(Filename)
-        str = str + "DBC File(" + i + ") = " + fso.GetFileName(Filename(i)) + vbLf
+        str = str + "DBC File(" + CStr(i) + ") = " + fso.GetFileName(Filename(i)) + vbLf
         rowHt = rowHt + 12
     Next
 str = str + "ECU Nodes Count= " + CStr(dicNode.Count) + vbLf
@@ -511,7 +514,7 @@ If Not dicSignal.Exists(Sig) Then
 Else
     ActiveSheet.Cells(start_row, eConflict) = "Conflict"
     ActiveSheet.Cells(dicSignal.Item(Sig), eConflict) = "Conflict"
-    countConflictSig = countConflictSig + 1
+    countConflictSig = countConflictSig + 1 
 End If
 End Function
 
@@ -524,8 +527,8 @@ i = dicMessage.Item(CStr(arr(3)))
 
 'msg.CycleTime = arr(4)
 ActiveSheet.Cells(i, 5) = arr(4)
-    Range(Col_Letter(eCycleTime) + CStr(i) +":"+Col_Letter(eCycleTime)+m.SignalCount).Select
-Selection.FillDown
+' Range(Col_Letter(eCycleTime) + CStr(i) +":"+Col_Letter(eCycleTime)+m.SignalCount).Select
+' Selection.FillDown
 'SetCycleTime = 1000# / arr(4) * (ActiveSheet.Cells(i, 3) * 8 + Fix((ActiveSheet.Cells(i, 3) * 8 + 1 + 32 + 6 + 16) / 5) + 32 + 32)
 
 End Function
