@@ -19,7 +19,7 @@
  '    7. 添加CheckMsgConflict()，CheckSignalName()以查重
  '    8. 修改文件打开代码，以同时打开多个dbc文件
  '    9. add smDict
- '    10. 
+ '    10. add FileIndex attr --> fileType, Enum, 
 '''''''''''''''''''''''''''''''''''''''''''''
 'Private Declare Sub RtlMoveMemory Lib "kernel32" (Destination As Any, source As Any, ByVal Length As Long)
 
@@ -27,7 +27,7 @@ Option Explicit
 
 'clms of Msg and Sig
 Const vClmMsg As Integer = 6
-Const vClmSig As Integer = 21
+Const vClmSig As Integer = 22
 Public Enum eCLM
     eMessage = 1
     eID
@@ -35,6 +35,8 @@ Public Enum eCLM
     eTxMethod
     eCycleTime
     eMsgComment
+
+    'Signal Attr
     eSignal
     eMultipGrp
     eStartbit
@@ -48,13 +50,14 @@ Public Enum eCLM
     eMaximum
     eUnit
     eValueTable
-    eComment
+    eSigComment
     eConflict
+    eFileIndex
 End Enum
 
 Dim vErrLog As String
 
-Private Type Message
+Public Type Message
     Index As Integer
     Name As String
     id As Double
@@ -63,7 +66,8 @@ Private Type Message
     Transmitter As String
     CycleTime As Integer
     SignalCount As Integer
-    Layoutuse(63) As Integer  'bitSt,0Unuse, 1 use
+    MsgComment As String
+    Layoutuse(63) As Integer  'bitSt,0 Unuse, 1 use
     Conflict As Integer
 End Type
 
@@ -88,6 +92,7 @@ Private Type Signal
     Encoding As String
     Range As String
     Conflict As Integer
+    FileIndex As Integer
 End Type
 
 Private Type MsgComment
@@ -106,14 +111,15 @@ Private Type SignalComment
     OKEnd As Boolean
 End Type
 
-Dim dicMessage, dicSignal, dicNode, dicAttr, dicSigCmt As Scripting.Dictionary
+Dim dicMessage, dicSignal, dicNode, dicAttr As Scripting.Dictionary
+'   (k-id,v-Msg), (id-sig,Sig)'
 Dim start_row, emptyMessage As Integer
 
 Dim countMessage, countSignal, countConflictSig As Integer
 Dim attrMsgSendType() As String
 Dim m As Message
 Dim S As Signal
-Dim sm As SignalComment
+
 
 
 Private Sub dbc_clear()
@@ -125,7 +131,7 @@ While Len(ActiveSheet.Cells(i, vClmMsg + 1)) > 0
     i = i + 1
 Wend
 
-j = 18
+j = vClmSig + 1
 While Len(ActiveSheet.Cells(2, j)) > 0
     j = j + 1
 Wend
@@ -162,11 +168,7 @@ Dim elapsed As Double
 Dim baudrate, totalbit As Double
 
 baudrate = 500000
-' vClmMsg = 6
-' vClmSig = 21
-MBox = MsgBox("提示：如果要合并多帧报文，请先加选多帧dbc文件", vbYesNoCancel + vbQuestion)
-
-
+'MBox = MsgBox("提示：如果要合并多帧报文，请先加载多帧dbc文件", vbYesNoCancel + vbQuestion)
 
 starttime = Now
 endtime = starttime
@@ -177,7 +179,9 @@ Call dbc_clear
 text = GetElapsedTime(endtime, "Clear")
 endtime = Now
 
-head = "Message,ID,DLC [Byte],TxMethod,Cycle Time [Ms],MsgComment,Signal,Multip/Grp,Startbit,Length [Bit],Byte Order,Value Type,Initial Value,Factor,Offset,Minimum,Maximum,Unit,Value Table,Comment,Conflict"
+Filename = Application.GetOpenFilename("DBC File,*.dbc", 0, "选择需转换、合并（可多选）的文件", Null, True)
+
+head = "Message,ID,DLC [Byte],TxMethod,Cycle Time [Ms],MsgComment,Signal,Multip/Grp,Startbit,Length [Bit],Byte Order,Value Type,Initial Value,Factor,Offset,Minimum,Maximum,Unit,Value Table,Comment,Conflict, File"
 arr = Split(head, ",")
 For i = 0 To UBound(arr)
     ActiveSheet.Cells(2, i + 1) = arr(i)
@@ -204,12 +208,11 @@ endtime = Now
 
 'todo: read dbc'
 
-Filename = Application.GetOpenFilename("DBC File,*.dbc", 0, "选择需转换、合并（可多选）的文件", Null, True)
-
 If IsArray(Filename) = True Then
     Application.ScreenUpdating = False
-    For Each File In Filename
-        Call dbc_file_read(File)
+    ' For Each File In Filename
+    For i = 1 To UBound(Filename)
+        Call dbc_file_read(Filename(i), i)
     Next
     Application.ScreenUpdating = True
 Else
@@ -226,19 +229,19 @@ k = dicMessage.Keys
 v = dicMessage.Items
 
 For i = 0 To dicMessage.Count - 1
-    temp = ActiveSheet.Cells(v(i), eID)
+    temp = ActiveSheet.Cells(v(i).Index, eID)
     If temp > 65535 Then
         temp_high = Fix(temp / 65536)   '0x10000'
         temp_low = temp - temp_high * 65536
         If temp_high > 32767 Then   '0x8000
-            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & Hex(temp_high - 32768), 4) & Right(String(4, "0") & Hex(temp_low), 4)
+            ActiveSheet.Cells(v(i).Index, eID) = "0x" & Right(String(4, "0") & Hex(temp_high - 32768), 4) & Right(String(4, "0") & Hex(temp_low), 4)
         Else
-            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & Hex(temp_high), 4) & Right(String(4, "0") & Hex(temp_low), 4)
+            ActiveSheet.Cells(v(i).Index, eID) = "0x" & Right(String(4, "0") & Hex(temp_high), 4) & Right(String(4, "0") & Hex(temp_low), 4)
         End If
     Else
-        ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
+        ActiveSheet.Cells(v(i).Index, eID) = "0x" + Hex(temp)
     End If
-    ' ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
+    ' ActiveSheet.Cells(v(i).Index, eID) = "0x" + Hex(temp)
 Next i
 
 text = text + vbLf + GetElapsedTime(endtime, "Format message id(dec-->hex)")
@@ -255,33 +258,28 @@ For i = 4 To countSignal + 3 + emptyMessage
         If i - start_row > 1 Then
             group start_row, i - 1
             For j = 1 To vClmMsg
-                combine Col_Letter(j), start_row, i - 1
+                ' combine Col_Letter(j), start_row, i - 1
             Next
-            ' combine "A", start_row, i - 1
-            ' combine "B", start_row, i - 1
-            ' combine "C", start_row, i - 1
-            ' combine "D", start_row, i - 1
-            ' combine "E", start_row, i - 1
         End If
         start_row = i
     End If
 Next i
 
 'For i = 0 To dicMessage.Count - 2
-'    If v(i + 1) - v(i) > 1 Then
-'        combine "A", v(i), v(i + 1) - 1
-'        combine "B", v(i), v(i + 1) - 1
-'        combine "C", v(i), v(i + 1) - 1
-'        combine "D", v(i), v(i + 1) - 1
-''        group v(i), v(i + 1) - 1
+'    If v(i + 1) - v(i).Index > 1 Then
+'        combine "A", v(i).Index, v(i + 1) - 1
+'        combine "B", v(i).Index, v(i + 1) - 1
+'        combine "C", v(i).Index, v(i + 1) - 1
+'        combine "D", v(i).Index, v(i + 1) - 1
+''        group v(i).Index, v(i + 1) - 1
 '    End If
 'Next i
-'If 2 + countSignal > v(i) Then
-'    combine "A", v(i), 2 + countSignal
-'    combine "B", v(i), 2 + countSignal
-'    combine "C", v(i), 2 + countSignal
-'    combine "D", v(i), 2 + countSignal
-''    group v(i), 2 + countSignal
+'If 2 + countSignal > v(i).Index Then
+'    combine "A", v(i).Index, 2 + countSignal
+'    combine "B", v(i).Index, 2 + countSignal
+'    combine "C", v(i).Index, 2 + countSignal
+'    combine "D", v(i).Index, 2 + countSignal
+''    group v(i).Index, 2 + countSignal
 'End If
 
 text = text + vbLf + GetElapsedTime(endtime, "Format message")
@@ -341,19 +339,24 @@ End With
 text = text + vbLf + GetElapsedTime(endtime, "Format grid")
 endtime = Now
 'Auto fit: value_table,Sigcomments, ECUs
-Columns(Col_Letter(eMessage) + ":" + Col_Letter(eConflict)).Select
+Columns(Col_Letter(eID) + ":" + Col_Letter(vClmSig)).Select
 Selection.EntireColumn.AutoFit
-Columns(Col_Letter(eComment) + ":" + Col_Letter(eComment)).Select
-Range(Col_Letter(eComment) + "1").Activate
-With Selection
-    .ColumnWidth = 25
-    .WrapText = True
-End With
 Columns(Col_Letter(eMsgComment) + ":" + Col_Letter(eMsgComment)).Select
 With Selection
     .ColumnWidth = 25
     .WrapText = True
 End With
+Columns(Col_Letter(eValueTable) + ":" + Col_Letter(eValueTable)).Select
+With Selection
+    .ColumnWidth = 15
+    .WrapText = True
+End With
+Columns(Col_Letter(eSigComment) + ":" + Col_Letter(eSigComment)).Select
+With Selection
+    .ColumnWidth = 25
+    .WrapText = True
+End With
+
 Columns(Col_Letter(vClmSig + 1) + ":" + Col_Letter(vClmSig + dicNode.Count)).Select
 Selection.EntireColumn.AutoFit
 
@@ -365,8 +368,9 @@ endtime = Now
 
 str = ""
 rowHt = 48
-For Each File In Filename
-        str = str + "DBC File= " + fso.GetFileName(File) + vbLf
+' For Each File In Filename
+For i = 1 To UBound(Filename)
+        str = str + "DBC File(" + i + ") = " + fso.GetFileName(Filename(i)) + vbLf
         rowHt = rowHt + 12
     Next
 str = str + "ECU Nodes Count= " + CStr(dicNode.Count) + vbLf
@@ -384,7 +388,8 @@ ActiveSheet.Cells(1, vClmMsg + 1) = str
         .HorizontalAlignment = xlHAlignLeft
         .RowHeight = rowHt
     End With
-    
+
+'Can Type:
 ActiveSheet.Cells(1, 2) = "Standard"
     ActiveSheet.Range("B1:" & Col_Letter(vClmMsg) & "1").Select
     With Selection
@@ -393,7 +398,7 @@ ActiveSheet.Cells(1, 2) = "Standard"
     End With
 
 Set dicMessage = Nothing
-Set dicMessage = Nothing
+Set dicSignal = Nothing
 Set dicAttr = Nothing
 Set fso = Nothing
 
@@ -487,11 +492,11 @@ If Not dicNode.Exists(str) Then
 End If
 End Sub
 
-Private Function CheckMsgConflict(ByVal id As String, ByVal row As Integer) As Integer
+Private Function CheckMsgConflict(ByVal id As String, msg As Message) As Integer
 Dim ret As Integer
 ret = 1
 If Not dicMessage.Exists(id) Then
-    dicMessage.Add id, row ' dicMessage.Count + 1
+    dicMessage.Add id, msg ' dicMessage.Count + 1
     'ActiveSheet.Cells(2, vClmSig + dicNode.Count) = id
     ret = 0
 End If
@@ -507,8 +512,8 @@ If Not dicSignal.Exists(Sig) Then
     ' dicSignal.Count = dicSignal.Count +1
     'ActiveSheet.Cells(2, vClmSig + dicNode.Count) = id
 Else
-    ActiveSheet.Cells(start_row, eConflict) = "Comflict"
-    ActiveSheet.Cells(dicSignal.Item(Sig), eConflict) = "Comflict"
+    ActiveSheet.Cells(start_row, eConflict) = "Conflict"
+    ActiveSheet.Cells(dicSignal.Item(Sig), eConflict) = "Conflict"
     countConflictSig = countConflictSig + 1
 End If
 End Function
@@ -518,9 +523,12 @@ Dim arr
 Dim i As Integer
 
 arr = Split(Mid(str, 1, Len(str) - 1), " ")
-i = dicMessage.Item(CStr(arr(3)))
-ActiveSheet.Cells(i, 5) = arr(4)
+i = dicMessage.Item(CStr(arr(3))).Index
 
+dicMessage.Item(CStr(arr(3))).CycleTime = arr(4)
+ActiveSheet.Cells(i, 5) = arr(4)
+    Range(Col_Letter(eCycleTime) + i +":"+Col_Letter(eCycleTime)+dicMessage.Item(CStr(arr(3))).SignalCount).Select
+Selection.FillDown
 'SetCycleTime = 1000# / arr(4) * (ActiveSheet.Cells(i, 3) * 8 + Fix((ActiveSheet.Cells(i, 3) * 8 + 1 + 32 + 6 + 16) / 5) + 32 + 32)
 
 End Function
@@ -586,7 +594,7 @@ m.DLC = arr(3)
 m.Transmitter = arr(4)
 'todo:'
 countMessage = countMessage + 1
-m.Conflict = CheckMsgConflict(CStr(m.id), m.Index)
+m.Conflict = CheckMsgConflict(CStr(m.id), m)
 GetMessage = m
 End Function
 
@@ -714,10 +722,6 @@ Private Function Col_Letter(ByVal lngCol As Long) As String
     Col_Letter = vArr(0)
 End Function
 
-'Callback for customButton1 onAction
-Sub dbc2excel(control As IRibbonControl)
-dbc_Click
-End Sub
 
 'Private Function ReadUniFile(ByVal sFile As String) As String
 '  Dim A As Long
@@ -764,13 +768,14 @@ Private Function ConvertDecHex(Num_Dec As Long) As String
 End Function
 
 'Read dbc file content'
-Private Sub dbc_file_read(File)
+Private Sub dbc_file_read(File, ByVal flidx As Integer)
 Dim str, rline, text As String
 Dim i, j, Index, ii As Integer
 Dim lines() As String
 Dim isUnix As Boolean
 Dim arr
 Dim Msgcmt As MsgComment
+Dim sm As SignalComment
 
 Open File For Input As #1
 Line Input #1, rline
@@ -809,30 +814,35 @@ For ii = 0 To UBound(lines)
             start_row = start_row + 1
         End If
         m = GetMessage(start_row, rline)
-        If m.Conflict = 0 Then
-            ActiveSheet.Cells(start_row, eMessage) = m.Name
-            ActiveSheet.Cells(start_row, eID) = m.id
-            ActiveSheet.Cells(start_row, eDLC) = m.DLC
-            CheckNode (m.Transmitter)
-        End If
+        ' If m.Conflict = 0 Then
+        '     ActiveSheet.Cells(start_row, eMessage) = m.Name
+        '     ActiveSheet.Cells(start_row, eID) = m.id
+        '     ActiveSheet.Cells(start_row, eDLC) = m.DLC
+        ' End If
+        CheckNode (m.Transmitter)
     ElseIf InStr(1, rline, "SG_ ") = 1 Then
         m.SignalCount = m.SignalCount + 1
         S = GetSignal(start_row, CStr(m.id), rline)
-        ActiveSheet.Cells(start_row, 1) = m.Name
-        'ActiveSheet.Cells(start_row, 2) = m.ID
-        ActiveSheet.Cells(start_row, vClmMsg + 1) = S.Name
-        ActiveSheet.Cells(start_row, vClmMsg + 2) = S.Multiplexing_Group
-        ActiveSheet.Cells(start_row, vClmMsg + 3) = S.Startbit
-        ActiveSheet.Cells(start_row, vClmMsg + 4) = S.Length
-        ActiveSheet.Cells(start_row, vClmMsg + 5) = S.ByteOrder
-        ActiveSheet.Cells(start_row, vClmMsg + 6) = S.ValueType
-        ActiveSheet.Cells(start_row, vClmMsg + 7) = S.InitialValue
-        ActiveSheet.Cells(start_row, vClmMsg + 8) = S.Factor
-        ActiveSheet.Cells(start_row, vClmMsg + 9) = S.Offset
-        ActiveSheet.Cells(start_row, vClmMsg + 10) = S.Minimum
-        ActiveSheet.Cells(start_row, vClmMsg + 11) = S.Maximum
-        ActiveSheet.Cells(start_row, vClmMsg + 12) = S.Unit
-        'activesheet.Cells(start_row, vClmMsg+13) = s.Encoding
+        S.FileIndex = flidx
+        ActiveSheet.Cells(start_row, eMessage) = m.Name
+        ActiveSheet.Cells(start_row, eID) = m.id
+        ActiveSheet.Cells(start_row, eDLC) = m.DLC
+
+
+        ActiveSheet.Cells(start_row, eSignal) = S.Name
+        ActiveSheet.Cells(start_row, eMultipGrp) = S.Multiplexing_Group
+        ActiveSheet.Cells(start_row, eStartbit) = S.Startbit
+        ActiveSheet.Cells(start_row, eLength) = S.Length
+        ActiveSheet.Cells(start_row, eByteOrder) = S.ByteOrder
+        ActiveSheet.Cells(start_row, eValueType) = S.ValueType
+        ActiveSheet.Cells(start_row, eInitialValue) = S.InitialValue
+        ActiveSheet.Cells(start_row, eFactor) = S.Factor
+        ActiveSheet.Cells(start_row, eOffset) = S.Offset
+        ActiveSheet.Cells(start_row, eMinimum) = S.Minimum
+        ActiveSheet.Cells(start_row, eMaximum) = S.Maximum
+        ActiveSheet.Cells(start_row, eUnit) = S.Unit
+        ActiveSheet.Cells(start_row, eFileIndex) = S.FileIndex
+        'activesheet.Cells(start_row,  - vClmMsg) = s.Encoding
 
         'Node and Color'
         j = dicNode.Item(m.Transmitter)
@@ -903,16 +913,22 @@ For ii = 0 To UBound(lines)
     If Msgcmt.id > 0 And Msgcmt.OKStart And Msgcmt.OKEnd Then
         i = dicMessage.Item(CStr(Msgcmt.id))
         ActiveSheet.Cells(i, eMsgComment) = Msgcmt.Comment      '.AddComment text:
+        m.MsgComment = Msgcmt.Comment
         Msgcmt.id = 0
     End If
     If sm.id > 0 And sm.OKStart And sm.OKEnd Then
-        i = dicSignal.Item(CStr(sm.id) + "-" + sm.Name)
-        'dicSigCmt.add CStr(sm.id) + "-" + sm.Name, sm.Comment
-        ActiveSheet.Cells(i, eComment) = sm.Comment
+        i = dicSignal.Item(CStr(sm.id) + "-" + sm.Name)     ' + File
+        'dicSig.add CStr(sm.id) + "-" + sm.Name, sm.Comment
+        ActiveSheet.Cells(i, eSigComment) = sm.Comment
+        S.Comment = sm.Comment
         sm.id = 0
     End If
     
 Next ii
 End Sub
 
+'Callback for customButton1 onAction
+Sub dbc2excel(control As IRibbonControl)
+dbc_Click
+End Sub
 
