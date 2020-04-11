@@ -117,7 +117,7 @@ Dim dicMessage, dicSignal, dicNode, dicAttr As Scripting.Dictionary
 '   (k-id-fl,v-starow), (id-sig-f,strow)
 Dim m As Message 
 Dim S As Signal  
-Dim arrMessage() As Message
+Dim arrMessage() As Message    '自定义结构体的变量声明需分开，否则会报错
 Dim arrSignal() As Signal
 '   (indx,msg), (indx,sig)  
 Dim start_row, emptyMessage As Integer
@@ -233,7 +233,7 @@ endtime = Now
 
 k = dicMessage.Keys
 v = dicMessage.Items
-
+'Format message id(dec-->hex
 For i = 0 To dicMessage.Count - 1
     temp = ActiveSheet.Cells(v(i), eID)
     If temp > 65535 Then
@@ -249,10 +249,30 @@ For i = 0 To dicMessage.Count - 1
     End If
     ' ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
 Next i
-
 text = text + vbLf + GetElapsedTime(endtime, "Format message id(dec-->hex)")
 endtime = Now
 
+'Fill message Attr
+start_row = 3
+For i = 4 To countSignal + 3 + emptyMessage
+    'same Message Name
+    If ActiveSheet.Cells(i, 1) <> ActiveSheet.Cells(i - 1, 1) Then
+        If i - start_row > 1 Then
+            Range("B" + CStr(start_row) +":"+Col_Letter(vClmMsg)+ CStr(i-1)).Select
+            Selection.FillDown  
+        End If
+        start_row = i
+    End If
+Next i
+text = text + vbLf + GetElapsedTime(endtime, "Fill message Attr")
+endtime = Now
+
+sort countSignal + 2, dicNode.Count + vClmSig
+
+text = text + vbLf + GetElapsedTime(endtime, "Sort")
+endtime = Now
+
+'Format message
 start_row = 3
 For i = 4 To countSignal + 3 + emptyMessage
     'same Message Name
@@ -262,8 +282,6 @@ For i = 4 To countSignal + 3 + emptyMessage
             For j = 1 To vClmMsg
                 ' combine Col_Letter(j), start_row, i - 1
             Next
-		    Range("B" + CStr(start_row) +":"+Col_Letter(vClmMsg)+ CStr(i-1)).Select
-			Selection.FillDown  
         End If
         start_row = i
     End If
@@ -289,10 +307,6 @@ Next i
 text = text + vbLf + GetElapsedTime(endtime, "Format message")
 endtime = Now
 
-sort countSignal + 2, dicNode.Count + vClmSig
-
-text = text + vbLf + GetElapsedTime(endtime, "Sort")
-endtime = Now
 
 Range("A2:" + Col_Letter(vClmSig + dicNode.Count) + "2").Select
 Selection.Font.Bold = True
