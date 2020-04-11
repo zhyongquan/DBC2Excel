@@ -11,7 +11,7 @@ Option Explicit
 'clms of Msg and Sig
 Const vClmMsg As Integer = 6
 Const vClmSig As Integer = 22
-Public Enum eCLM
+Private Enum eCLM
     eMessage = 1
     eID
     eDLC
@@ -37,14 +37,13 @@ Public Enum eCLM
     eConflict
     eFileIndex  '22
 End Enum
+Dim dicMsgB, dicSigB As Scripting.Dictionary
+'   (k-id,v-idx), (id-sig,idx)
 
-
-Sub dbc_Click()
+Private Sub excel2dbc_Click()
 Application.DisplayAlerts = False
 On Error Resume Next
 
-Dim dicMsgB, dicSigB As Scripting.Dictionary
-'   (k-id,v-idx), (id-sig,idx)
 Dim i, j, k, node_count, message_count, signal_count As Integer
 Dim Filename, arr
 Dim nodes As String
@@ -249,6 +248,23 @@ Function Hex2Dec(h)
     End If
 End Function
 
+Private Function Col_Letter(ByVal lngCol As Long) As String
+    Dim vArr
+    vArr = Split(Cells(1, lngCol).Address(True, False), "$")
+    Col_Letter = vArr(0)
+End Function
+
 Sub excel2dbc(control As IRibbonControl)
-dbc_Click
+    Dim ret As Integer
+    Dim hint As String
+
+    ActiveWindow.ScrollColumn = 6
+    Range(Col_Letter(eConflict) + "2").AutoFilter Field:=21, Criteria1:=Array("Conflict"), Operator:=xlFilterValues
+
+    hint = "请先确认表格中已无冲突信号！！！" & vbLf & "已无冲突信号？？？" & vbLf
+    ret = MsgBox(hint, vbYesNo, "注意！！！")
+    If ret = vbYes Then
+        excel2dbc_Click
+    End If
+
 End Sub

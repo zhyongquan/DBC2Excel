@@ -30,7 +30,7 @@ Option Explicit
 'clms of Msg and Sig
 Const vClmMsg As Integer = 6
 Const vClmSig As Integer = 22
-Public Enum eCLM
+Private Enum eCLM
     eMessage = 1
     eID
     eDLC
@@ -389,7 +389,7 @@ End With
 Columns(Col_Letter(vClmSig + 1) + ":" + Col_Letter(vClmSig + dicNode.Count)).Select
 Selection.EntireColumn.AutoFit
 
-Range("B" + CStr(eSignal)).Select
+Range(Col_Letter(vClmMsg + 1) +"3").Select
 ActiveWindow.FreezePanes = True
 
 text = text + vbLf + GetElapsedTime(endtime, "Format fillter and frezze")
@@ -418,12 +418,28 @@ ActiveSheet.Cells(1, vClmMsg + 1) = str
         .RowHeight = rowHt
     End With
 
+'DBC TOOL:
+ActiveSheet.Cells(1, 1) = "DBC" + vbLf + "<<===>>" + vbLf + "EXCEL"
+    ActiveSheet.Range("A1").Select
+    With Selection
+        .Font.Bold = True
+        .Font.Name = "宋体"
+        .Font.Size = 11
+        .HorizontalAlignment = xlHAlignCenter
+        .VerticalAlignment = xlVAlignCenter
+    End With
+
 'Can Type:
 ActiveSheet.Cells(1, 2) = "Standard"
     ActiveSheet.Range("B1:" & Col_Letter(vClmMsg) & "1").Select
     With Selection
         .Merge Across:=False
+        .Font.Bold = True
+        .Font.Name = "宋体"
+        .Font.Size = 48
         .HorizontalAlignment = xlHAlignCenter
+        .VerticalAlignment = xlVAlignCenter
+        .IndentLevel = 0
     End With
 
 Set dicMessage = Nothing
@@ -970,6 +986,7 @@ End Sub
 
 'Callback for customButton1 onAction
 Sub dbc2excel(control As IRibbonControl)
+'MsgBox "欢迎使用！" & vbLf & " -dbc2excel"
 dbc_Click
 End Sub
 
