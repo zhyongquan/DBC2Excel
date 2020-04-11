@@ -39,7 +39,7 @@ Public Enum eCLM
     eMsgComment
 
     'Signal Attr
-    eSignal
+    eSignal     '7
     eMultipGrp
     eStartbit
     eLength
@@ -54,7 +54,7 @@ Public Enum eCLM
     eValueTable
     eSigComment
     eConflict
-    eFileIndex
+    eFileIndex  '22
 End Enum
 
 Dim vErrLog As String
