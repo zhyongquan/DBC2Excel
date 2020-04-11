@@ -214,7 +214,7 @@ start_row = 3
 Columns("A:A").Select
 Selection.NumberFormatLocal = "@"
 
-text = text + vbLf + GetElapsedTime(endtime, "Read file")
+text = text + vbLf + GetElapsedTime(endtime, "OPen files")
 endtime = Now
 
 'todo: read dbc'
@@ -231,10 +231,7 @@ Else
     Exit Sub
 End If
 
-' Call dbc_file_read(Filename)
-' Call dbc_file_read(File2ndname)
-
-text = text + vbLf + GetElapsedTime(endtime, "Fill table")
+text = text + vbLf + GetElapsedTime(endtime, "Read Files and Fill table")
 endtime = Now
 
 k = dicMessage.Keys
@@ -395,6 +392,7 @@ ActiveWindow.FreezePanes = True
 text = text + vbLf + GetElapsedTime(endtime, "Format fillter and frezze")
 endtime = Now
 
+'Sheet Head and Information
 str = ""
 rowHt = 48
 ' For Each File In Filename
@@ -429,7 +427,7 @@ ActiveSheet.Cells(1, 1) = "DBC" + vbLf + "<<===>>" + vbLf + "EXCEL"
         .VerticalAlignment = xlVAlignCenter
     End With
 
-'Can Type:
+'Can Type, todo:
 ActiveSheet.Cells(1, 2) = "Standard"
     ActiveSheet.Range("B1:" & Col_Letter(vClmMsg) & "1").Select
     With Selection
