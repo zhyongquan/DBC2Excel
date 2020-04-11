@@ -245,13 +245,13 @@ For i = 0 To dicMessage.Count - 1
     If temp > 65535 Then
         temp_high = Fix(temp / 65536)   '0x10000'
         temp_low = temp - temp_high * 65536
-        If temp_high > 32767 Then   '0x8000
-            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & Hex(temp_high - 32768), 4) & Right(String(4, "0") & Hex(temp_low), 4)
+        If temp_high > 65536 Then   
+            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & ConvertDecHex(CLng(temp_high) - 65536), 4) & Right(String(4, "0") & ConvertDecHex(CLng(temp_low)), 4)
         Else
-            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & Hex(temp_high), 4) & Right(String(4, "0") & Hex(temp_low), 4)
+            ActiveSheet.Cells(v(i), eID) = "0x" & Right(String(4, "0") & ConvertDecHex(CLng(temp_high)), 4) & Right(String(4, "0") & ConvertDecHex(CLng(temp_low)), 4)
         End If
     Else
-        ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
+        ActiveSheet.Cells(v(i), eID) = "0x" + ConvertDecHex(CLng(temp))
     End If
     ' ActiveSheet.Cells(v(i), eID) = "0x" + Hex(temp)
 Next i
@@ -389,7 +389,7 @@ End With
 Columns(Col_Letter(vClmSig + 1) + ":" + Col_Letter(vClmSig + dicNode.Count)).Select
 Selection.EntireColumn.AutoFit
 
-Range("B3").Select
+Range("B" + CStr(eSignal)).Select
 ActiveWindow.FreezePanes = True
 
 text = text + vbLf + GetElapsedTime(endtime, "Format fillter and frezze")
@@ -779,7 +779,7 @@ End Function
 'End Function
 
 
-Private Function ConvertDecHex(Num_Dec As Long) As String
+Private Function ConvertDecHex(Num_Dec As Long) As String   'Long -dec: 2147483647 --hex:0x7fff ffff
 
     Dim sTemp As String
    

@@ -43,6 +43,8 @@ Sub dbc_Click()
 Application.DisplayAlerts = False
 On Error Resume Next
 
+Dim dicMsgB, dicSigB As Scripting.Dictionary
+'   (k-id,v-idx), (id-sig,idx)
 Dim i, j, k, node_count, message_count, signal_count As Integer
 Dim Filename, arr
 Dim nodes As String
@@ -61,6 +63,9 @@ Filename = Application.GetSaveAsFilename(fileFilter:="DBC Files (*.dbc), *.dbc")
 If Filename = False Then
     Exit Sub
 End If
+
+Set dicMsgB = New Scripting.Dictionary
+Set dicSigB = New Scripting.Dictionary
 
 dbc_type = ActiveSheet.Cells(1, 2)
 
@@ -89,40 +94,42 @@ Print #1, "BU_:" & nodes
 i = 3
 message_count = 0
 signal_count = 0
-While Len(ActiveSheet.Cells(i, vClmMsg + 1)) > 0
-    If Len(ActiveSheet.Cells(i, 1)) > 0 Then
-        message_count = message_count + 1
-        message = ActiveSheet.Cells(i, 1)
-        id = Hex2Dec(ActiveSheet.Cells(i, eID))
-        If dbc_type <> "Standard" Then
-            id = id + 2147483648#
-        End If
-        dlc = ActiveSheet.Cells(i, eDLC)
-        For j = 1 To node_count
-            If ActiveSheet.Cells(i, j + vClmSig) = "T" Then
-                tx = ActiveSheet.Cells(2, j + vClmSig)
-                Exit For
+While Len(ActiveSheet.Cells(i, vClmMsg + 1)) > 0    'exist Signal
+    If Len(ActiveSheet.Cells(i, eMessage)) > 0 Then
+        'read Message Attr
+        If NOT dicMsgB.Exists(CStr(ActiveSheet.Cells(i, eID))) Then
+            dicMsgB.Add CStr(ActiveSheet.Cells(i, eID)), dicMsgB.Count + 1 
+            message_count = message_count + 1
+            message = ActiveSheet.Cells(i, 1)
+            id = Hex2Dec(ActiveSheet.Cells(i, eID))
+            If dbc_type <> "Standard" Then
+                id = id + 2147483648#
             End If
-        Next j
-        If tx = "" Then
-            tx = "Vector__XXX"
+            dlc = ActiveSheet.Cells(i, eDLC)
+            tx = ""
+            For j = 1 To node_count
+                If ActiveSheet.Cells(i, j + vClmSig) = "T" Then
+                    tx = ActiveSheet.Cells(2, j + vClmSig)
+                    Exit For
+                End If
+            Next j
+            If tx = "" Then
+                tx = "Vector__XXX"
+            End If
+
+            'writ Message head 
+            Print #1, vbLf
+            Print #1, "BO_ " & id & " " & ActiveSheet.Cells(i, eMessage) & ": " & ActiveSheet.Cells(i, eDLC) & " " & tx 
+            'CycleTime
+            If Len(ActiveSheet.Cells(i, eCycleTime) > 0) Then
+                cycle_time = ActiveSheet.Cells(i, eCycleTime) + 0
+                'cycle_time_list = cycle_time_list & "BA_ " & """GenMsgILSupport"" BO_ " & id & " " & 1 & ";" & vbLf
+                cycle_time_list = cycle_time_list & "BA_ " & """GenMsgSendType"" BO_ " & id & " " & 0 & ";" & vbLf
+                cycle_time_list = cycle_time_list & "BA_ " & """GenMsgCycleTime"" BO_ " & id & " " & cycle_time & ";" & vbLf
+            End If
         End If
-        Print #1, vbLf
-        Print #1, "BO_ " & id & " " & ActiveSheet.Cells(i, 1) & ": " & ActiveSheet.Cells(i, 3) & " " & tx
-        'CycleTime
-        If Len(ActiveSheet.Cells(i, 5) > 0) Then
-            cycle_time = ActiveSheet.Cells(i, 5) + 0
-            'cycle_time_list = cycle_time_list & "BA_ " & """GenMsgILSupport"" BO_ " & id & " " & 1 & ";" & vbLf
-            cycle_time_list = cycle_time_list & "BA_ " & """GenMsgSendType"" BO_ " & id & " " & 0 & ";" & vbLf
-            cycle_time_list = cycle_time_list & "BA_ " & """GenMsgCycleTime"" BO_ " & id & " " & cycle_time & ";" & vbLf
-        End If
-        
-    Else
-'        ActiveSheet.Cells(i, 1) = message
-'        Hex2Dec(ActiveSheet.Cells(i, 2)) = id
-'        Hex2Dec(ActiveSheet.Cells(i, 3)) = dlc
-'        ActiveSheet.Cells(i, eCycleTime) = cycle_time
     End If
+
     'Signal set
     signal_count = signal_count + 1
     signal = ActiveSheet.Cells(i, eSignal)
@@ -156,7 +163,7 @@ While Len(ActiveSheet.Cells(i, vClmMsg + 1)) > 0
     End If
     Print #1, " SG_ " & ActiveSheet.Cells(i, eSignal) & vtmpMulti & " : " & ActiveSheet.Cells(i, eStartbit) & "|" & ActiveSheet.Cells(i, eLength) & "@" & byte_order & value_type & _
         " (" & Num2Str(ActiveSheet.Cells(i, eFactor)) & "," & Num2Str(ActiveSheet.Cells(i, eOffset)) & ") " & "[" & Num2Str(ActiveSheet.Cells(i, eMinimum)) & "|" & Num2Str(ActiveSheet.Cells(i, eMaximum)) & "] " & _
-        """" & ActiveSheet.Cells(i, eUnit) & """" & rx
+        """" & ActiveSheet.Cells(i, eUnit) & """ " & rx
     If Len(ActiveSheet.Cells(i, eInitialValue)) > 0 And Len(ActiveSheet.Cells(i, eMessage)) > 0 And ActiveSheet.Cells(i, eFactor) <> 0 Then
         initial_value = (ActiveSheet.Cells(i, eInitialValue) - ActiveSheet.Cells(i, eOffset)) / ActiveSheet.Cells(i, eFactor)
         initial_value_list = initial_value_list & "BA_ ""GenSigStartValue"" SG_ " & id & " " & signal & " " & initial_value & ";" & vbLf
@@ -198,7 +205,7 @@ str = "DBC File= " + fso.GetFileName(Filename) + vbLf
 str = str + "ECU Nodes Count= " + CStr(node_count) + vbLf
 str = str + "Messages Count= " + CStr(message_count) + vbLf
 str = str + "Signals Count= " + CStr(signal_count)
-ActiveSheet.Cells(1, 5) = str
+'ActiveSheet.Cells(1, 5) = str
 
 Set fso = Nothing
 
