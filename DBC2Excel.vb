@@ -114,7 +114,9 @@ Private Type SignalComment
 End Type
 
 Dim dicMessage, dicSignal, dicNode, dicAttr As Scripting.Dictionary
-'   (k-id-fl,v-starow), (id-sig-f,strow)
+'   (k-id-fl,v-starow), (id-sig-fl,strow)
+Dim dicMsgB, dicSigB As Scripting.Dictionary
+'   (k-id,v-idx), (id-sig,idx)
 Dim m As Message 
 Dim S As Signal  
 Dim arrMessage() As Message    '自定义结构体的变量声明需分开，否则会报错
@@ -124,7 +126,7 @@ Dim start_row, emptyMessage As Integer
 
 Dim countMessage, countSignal, countConflictSig As Integer
 Dim attrMsgSendType() As String
-
+Dim gFileIndex As Integer    'dbc file indx, multi Sub use it 
 
 
 
@@ -198,6 +200,9 @@ Set dicMessage = New Scripting.Dictionary
 Set dicSignal = New Scripting.Dictionary
 Set dicAttr = New Scripting.Dictionary
 
+Set dicMsgB = New Scripting.Dictionary
+Set dicSigB = New Scripting.Dictionary
+
 countSignal = 0
 countMessage = 0
 countConflictSig = 0
@@ -218,6 +223,7 @@ If IsArray(Filename) = True Then
     Application.ScreenUpdating = False
     ' For Each File In Filename
     For i = 1 To UBound(Filename)
+        gFileIndex = i
         Call dbc_file_read(Filename(i), i)
     Next
     Application.ScreenUpdating = True
@@ -397,8 +403,8 @@ For i = 1 To UBound(Filename)
         rowHt = rowHt + 12
     Next
 str = str + "ECU Nodes Count= " + CStr(dicNode.Count) + vbLf
-str = str + "Messages Count= " + CStr(dicMessage.Count) + vbLf
-str = str + "Signals Count= " + CStr(dicSignal.Count) + vbLf
+str = str + "Messages Count= " + CStr(dicMsgB.Count) + vbLf
+str = str + "Signals Count= " + CStr(dicSigB.Count) + vbLf
 str = str + "Conflict'Sigs Count= " + CStr(countConflictSig) + vbLf
 'str = str + vbLf + "Bus Load= " + Format(totalbit * 100 / baudrate, "0.00") + "%"
 ActiveSheet.Cells(1, vClmMsg + 1) = str
@@ -424,6 +430,9 @@ Set dicMessage = Nothing
 Set dicSignal = Nothing
 Set dicAttr = Nothing
 Set fso = Nothing
+
+Set dicMsgB = Nothing
+Set dicSigB = Nothing
 
 text = text + vbLf + GetElapsedTime(endtime, "End")
 endtime = Now
@@ -519,30 +528,40 @@ End Sub
 
 'todo: compare the signals'
 Private Function CheckSignalName(ByVal Sig As String, ByVal start_row As Integer) As Integer
-Dim ret As Integer
+Dim i As Integer
 
-If Not dicSignal.Exists(Sig) Then
-    dicSignal.Add Sig, start_row ' dicMessage.Count + 1
-    ' dicSignal.Count = dicSignal.Count +1
+dicSignal.Add Sig + CStr(gFileIndex), start_row 
+If Not dicSigB.Exists(Sig) Then
+    dicSigB.Add Sig, dicSigB.Count + 1
+    ' dicSignal.Count = dicSignal.Count +1 '字典中有这个属性，会自动计算的不用手动加
     'ActiveSheet.Cells(2, vClmSig + dicNode.Count) = id
 Else
     ActiveSheet.Cells(start_row, eConflict) = "Conflict"
-    ActiveSheet.Cells(dicSignal.Item(Sig), eConflict) = "Conflict"
+    i = gFileIndex
+    While i 
+        ActiveSheet.Cells(dicSignal.Item(Sig + CStr(i)), eConflict) = "Conflict"
+        i = i - 1
+    Wend
     countConflictSig = countConflictSig + 1 
 End If
+
 End Function
 
 Private Function SetCycleTime(ByVal str As String) As Double
-Dim arr
+Dim arr, arr1
 Dim i As Integer
+Dim sCycleT As String
 
 arr = Split(Mid(str, 1, Len(str) - 1), " ")
-i = dicMessage.Item(CStr(arr(3)))
+i = dicMessage.Item(CStr(arr(3)) + CStr(gFileIndex))
+arr1 = Split(arr(1), """")
+sCycleT = arr1(1)
+'avoid "GenMsgCycleTimeFast"
+If StrComp("GenMsgCycleTime", sCycleT, vbTextCompare) = 0 Then
+    'msg.CycleTime = arr(4)
+    ActiveSheet.Cells(i, 5) = arr(4)
+End If
 
-'msg.CycleTime = arr(4)
-ActiveSheet.Cells(i, 5) = arr(4)
-' Range(Col_Letter(eCycleTime) + CStr(i) +":"+Col_Letter(eCycleTime)+m.SignalCount).Select
-' Selection.FillDown
 'SetCycleTime = 1000# / arr(4) * (ActiveSheet.Cells(i, 3) * 8 + Fix((ActiveSheet.Cells(i, 3) * 8 + 1 + 32 + 6 + 16) / 5) + 32 + 32)
 
 End Function
@@ -552,7 +571,7 @@ Dim arr
 Dim i As Integer
 
 arr = Split(Mid(str, 1, Len(str) - 1), " ")
-i = dicMessage.Item(CStr(arr(3)))
+i = dicMessage.Item(CStr(arr(3)) + CStr(gFileIndex))
 'todo: '
 ActiveSheet.Cells(i, eTxMethod) = attrMsgSendType(arr(4))
 
@@ -609,9 +628,9 @@ m.Name = Mid(arr(2), 1, Len(arr(2)) - 1)
 m.DLC = arr(3)
 m.Transmitter = arr(4)
 'todo:'
-
-If Not dicMessage.Exists(CStr(m.id)) Then
-    dicMessage.Add CStr(m.id), start_row ' dicMessage.Count + 1
+dicMessage.Add CStr(m.id) + CStr(gFileIndex), start_row
+If Not dicMsgB.Exists(CStr(m.id)) Then
+    dicMsgB.Add CStr(m.id), dicMsgB.Count + 1
     'ActiveSheet.Cells(2, vClmSig + dicNode.Count) = id
     ret = 0
 End If
@@ -691,7 +710,7 @@ Dim i As Integer
 i = InStr(str, ";")
 arr = Split(Mid(str, 1, i - 1), " ")
 
-i = dicSignal.Item(arr(3) + "-" + arr(4))
+i = dicSignal.Item(arr(3) + "-" + arr(4) + CStr(gFileIndex))
 ActiveSheet.Cells(i, vClmMsg + 7) = arr(5) * ActiveSheet.Cells(i, vClmMsg + 8).Value + ActiveSheet.Cells(i, vClmMsg + 9).Value
 
 End Sub
@@ -716,7 +735,7 @@ Else
 End If
 
 
-i = dicSignal.Item(arr1(1) + "-" + arr1(2))
+i = dicSignal.Item(arr1(1) + "-" + arr1(2) + CStr(gFileIndex))
 ActiveSheet.Cells(i, vClmMsg + 13) = vt
 
 End Sub
@@ -933,13 +952,13 @@ For ii = 0 To UBound(lines)
         SetValueTable (rline)
     End If
     If Msgcmt.id > 0 And Msgcmt.OKStart And Msgcmt.OKEnd Then
-        i = dicMessage.Item(CStr(Msgcmt.id))
+        i = dicMessage.Item(CStr(Msgcmt.id) + CStr(gFileIndex))
         ActiveSheet.Cells(i, eMsgComment) = Msgcmt.Comment      '.AddComment text:
         'm.MsgComment = Msgcmt.Comment
         Msgcmt.id = 0
     End If
     If sm.id > 0 And sm.OKStart And sm.OKEnd Then
-        i = dicSignal.Item(CStr(sm.id) + "-" + sm.Name)     ' + File
+        i = dicSignal.Item(CStr(sm.id) + "-" + sm.Name + CStr(gFileIndex))
         'dicSig.add CStr(sm.id) + "-" + sm.Name, sm.Comment
         ActiveSheet.Cells(i, eSigComment) = sm.Comment
         'S.Comment = sm.Comment
